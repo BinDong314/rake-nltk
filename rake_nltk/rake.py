@@ -12,6 +12,7 @@ from itertools import chain, groupby, product
 from typing import Callable, DefaultDict, Dict, List, Optional, Set, Tuple
 
 import nltk
+from nltk.stem.snowball import SnowballStemmer
 
 # Readability type definitions.
 Word = str
@@ -117,7 +118,11 @@ class Rake:
         self.degree: Dict[Word, int]
         self.rank_list: List[Tuple[float, Sentence]]
         self.ranked_phrases: List[Sentence]
-
+        
+        self.user_feedback_dict = None
+    def load_user_feedback(self, feedback_dict):
+        self.user_feedback_dict = feedback_dict
+    
     def extract_keywords_from_text(self, text: str):
         """Method to extract keywords from the text provided.
 
@@ -216,7 +221,33 @@ class Rake:
         self.degree = defaultdict(lambda: 0)
         for key in co_occurance_graph:
             self.degree[key] = sum(co_occurance_graph[key].values())
+    
+    ##List[Tuple[float, Sentence]]
+    def update_weights_with_stemming(self, user_dict, rank_list, bigger_is_good=True):
+        stemmer = SnowballStemmer("english")
+        
+        #print(f"rank_list = ", rank_list)
+        updated_rank_list = []   
+        if user_dict:
+            stemmed_user_dict = {stemmer.stem(key): value for key, value in user_dict.items()}
+            for weight, key in rank_list:
+                stemmed_key = stemmer.stem(key)
+                if stemmed_key in stemmed_user_dict:
+                    old_weight = weight
+                    feed_back = stemmed_user_dict[stemmed_key]
+                    if bigger_is_good:
+                        new_weight = weight * feed_back  # Multiply the weight if the key exists in user_dict
+                    else:
+                        new_weight = weight/feed_back  # Multiply the weight if the key exists in user_dict
+                    updated_rank_list.append((new_weight, key))
+                else:
+                    updated_rank_list.append((weight, key))
 
+            return updated_rank_list
+                    #print(f"\n key {key}, old weight {old_weight}, new rank_list = {weights[key]}, feedback={feed_back}")        
+        
+        return rank_list
+    
     def _build_ranklist(self, phrase_list: List[Phrase]):
         """Method to rank each contender phrase using the formula
 
@@ -238,6 +269,9 @@ class Rake:
                 else:
                     rank += 1.0 * self.frequency_dist[word]
             self.rank_list.append((rank, ' '.join(phrase)))
+        if self.user_feedback_dict is not None:
+            self.rank_list = self.update_weights_with_stemming(self.user_feedback_dict,  self.rank_list)
+
         self.rank_list.sort(reverse=True)
         self.ranked_phrases = [ph[1] for ph in self.rank_list]
 
